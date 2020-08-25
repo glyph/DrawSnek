@@ -168,6 +168,7 @@ def main():
     @engine.handleKey(pygame.locals.K_d)
     def desnek():
         if not sneks:
+            # GHOST SNEK
             snek(0.0, -1.0)
             return
         animator, mover, sprite = sneks.pop(0)
