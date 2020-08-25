@@ -6,6 +6,7 @@ __version__ = "0.1"
 
 import sys
 import time
+from colorsys import rgb_to_hsv, hsv_to_rgb
 
 from random import SystemRandom
 
@@ -75,13 +76,14 @@ class Mover(object):
             self.sprite.y = min(self.maxY, (self.minY + (self.minY - self.sprite.y)))
 
 
-def spriteRow(y, height=16, scaleFactor=16):
+def spriteRow(y, hueRotation, saturationBoost, height=16, scaleFactor=16):
     images = []
     for x in range(10):
+        smallImage = spriteSheet.subsurface(x * 32, y, 32, height).copy()
+        hueRotate(smallImage, hueRotation, saturationBoost)
         images.append(
             pygame.transform.scale(
-                spriteSheet.subsurface(x * 32, y, 32, height),
-                (32 * scaleFactor, height * scaleFactor),
+                smallImage, (32 * scaleFactor, height * scaleFactor),
             )
         )
     return images
@@ -94,7 +96,7 @@ class Engine:
 
     def start(self):
         screen = pygame.display.set_mode(
-            (640 * 2, 480 * 2), pygame.locals.SCALED | pygame.locals.FULLSCREEN, vsync=1
+            (640 * 2, 480 * 2), pygame.locals.SCALED, vsync=1
         )
 
         def handleEvents():
@@ -121,6 +123,22 @@ class Engine:
         return decorator
 
 
+def hueRotate(image, hueRotation, saturationBoost):
+    if hueRotation == 0.0 and saturationBoost == 0.0:
+        return
+    for x in range(image.get_width()):
+        for y in range(image.get_height()):
+            color = image.get_at((x, y))
+            r, g, b = (color.r / 255.0, color.g / 255.0, color.b / 255.0)
+            h, s, v = rgb_to_hsv(r, g, b)
+            h += hueRotation
+            h %= 1.0
+            s += saturationBoost
+            s = max(0.0, min(s, 1.0))
+            r2, g2, b2 = hsv_to_rgb(h, s, v)
+            image.set_at((x, y), (int(r2 * 255), int(g2 * 255), int(b2 * 255), color.a))
+
+
 def main():
     from twisted.logger import globalLogBeginner, textFileLogObserver
 
@@ -128,16 +146,34 @@ def main():
 
     engine = Engine()
 
+    sneks = []
+
     @engine.handleKey(pygame.locals.K_s)
-    def snek():
+    def snek(hueRotation=0.0, saturationBoost=0.0):
         animationIndex = random.randint(0, 4)
-        images = spriteRow(16 + (32 * animationIndex))
+        if pygame.key.get_mods() & pygame.locals.KMOD_LSHIFT:
+            hueRotation = random.random()
+            saturationBoost = random.random() * 0.2
+        images = spriteRow(16 + (32 * animationIndex), hueRotation, saturationBoost)
         sprite = Sprite(images, random.randint(0, 400), random.randint(0, 400))
         moveSpeed = random.randint(50, 100)
         animateSpeed = random.randint(5, 35)
-        LoopingCall.withCount(sprite.animate).start(1.0 / animateSpeed)
-        LoopingCall.withCount(Mover(sprite).move).start(1.0 / moveSpeed)
+        animator = LoopingCall.withCount(sprite.animate)
+        animator.start(1.0 / animateSpeed)
+        mover = LoopingCall.withCount(Mover(sprite).move)
+        mover.start(1.0 / moveSpeed)
         engine.drawables.append(sprite)
+        sneks.append((animator, mover, sprite))
+
+    @engine.handleKey(pygame.locals.K_d)
+    def desnek():
+        if not sneks:
+            snek(0.0, -1.0)
+            return
+        animator, mover, sprite = sneks.pop(0)
+        engine.drawables.remove(sprite)
+        animator.stop()
+        mover.stop()
 
     @engine.handleKey(pygame.locals.K_q)
     def stop():
